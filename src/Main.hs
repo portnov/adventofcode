@@ -11,7 +11,7 @@ import qualified Data.IntSet as IS
 import System.Environment
 
 data Problem = Problem {
-    problemInitState :: IS.IntSet
+    problemInitState :: Generation
   , problemRules :: RulesTrie
   }
   deriving (Show)
@@ -22,7 +22,7 @@ data Rule = Rule {
   }
   deriving (Show)
 
-type Solver a = St.StateT IS.IntSet IO a
+type Solver a = St.StateT Generation IO a
 
 data RulesTrie =
     EmptyTrie
@@ -32,6 +32,8 @@ data RulesTrie =
       branchTrue :: RulesTrie
     }
   deriving (Show)
+
+type Generation = IS.IntSet
 
 insertTrie :: [Bool] -> Bool -> RulesTrie -> RulesTrie
 insertTrie [] r EmptyTrie = Leaf r
@@ -52,11 +54,11 @@ mkTrie rules = foldr insertRule EmptyTrie rules
 
     ruleList set = [i `IS.member` set | i <- [-2 .. 2]]
 
-mkSet :: [Int] -> [Bool] -> IS.IntSet
+mkSet :: [Int] -> [Bool] -> Generation
 mkSet idxs mask =
   IS.fromList [i | (i, m) <- zip idxs mask, m]
 
-pInitState :: Parser IS.IntSet
+pInitState :: Parser Generation
 pInitState = do
   string "initial state: "
   st <- manyTill pPot newline 
@@ -96,10 +98,20 @@ checkRules i trie = do
                      else branchFalse rules
       check (j+1) rules'
 
-runGeneration :: Integer -> Problem -> Solver Bool
+compareGenerations :: Generation -> Generation -> Maybe Int
+compareGenerations old new = check (-2)
+  where
+    check d
+      | d == 3 = Nothing
+      | IS.map (+d) old == new = Just d
+      | otherwise = check (d+1)
+
+-- Nothing - generations are totally different
+-- Just (n, d) - at generation n, new generation is shifted w.r.t old one with shift == d
+runGeneration :: Integer -> Problem -> Solver (Maybe (Integer, Int))
 runGeneration generationNumber (Problem {..}) = do
     oldGeneration <- get
-    when (generationNumber `mod` 10000 == 0) $
+    when (generationNumber `mod` 9999 == 0) $
         lift $ putStrLn $ show generationNumber ++ ": " ++ showGeneration oldGeneration
 
     newPairs <-
@@ -108,25 +120,27 @@ runGeneration generationNumber (Problem {..}) = do
           return (i, fromMaybe False r)
     
     let newGeneration = uncurry mkSet (unzip newPairs)
-    if newGeneration == oldGeneration
-      then return True
-      else do
+    case compareGenerations oldGeneration newGeneration of
+      Just d -> return $ Just (generationNumber, d)
+      Nothing -> do
            put newGeneration
-           return False
+           return Nothing
 
-solve :: Integer -> Problem -> Solver ()
+-- Nothing - we have counted to the end
+-- Just (n, d) - we stopped at n'th generation and shift == d
+solve :: Integer -> Problem -> Solver (Maybe (Integer, Int))
 solve generations p@(Problem {..}) = go 1
   where
     go n = do
       if n == generations+1
-        then return ()
+        then return Nothing
         else do
-          stop <- runGeneration n p
-          if stop
-            then return ()
-            else go (n+1)
+          r <- runGeneration n p
+          case r of
+            Nothing -> go (n+1)
+            Just (stop, d) -> return $ Just (stop, d)
 
-showGeneration :: IS.IntSet -> String
+showGeneration :: Generation -> String
 showGeneration gen = 
     if IS.null gen
       then "<EMPTY>"
@@ -139,13 +153,23 @@ showGeneration gen =
 
 main :: IO ()
 main = do
-  [generations, path] <- getArgs
+  [generationsS, path] <- getArgs
+  let generations = read generationsS
   r <- parseFromFile pProblem path
   case r of
     Left err -> fail (show err)
     Right problem -> do
-      generation <- execStateT (solve (read generations) problem) (problemInitState problem)
+      (result, generation) <- runStateT (solve generations problem) (problemInitState problem)
       putStrLn $ showGeneration generation
-      let answer = sum $ IS.toList generation
-      print answer
+      let currentSum = sum $ IS.toList generation
+      print result
+      case result of
+        Nothing -> do
+          print currentSum
+        Just (stop, shift) -> do
+          let generationsLeft = generations - stop + 1
+              shiftLeft = fromIntegral shift * generationsLeft
+              nPlants = fromIntegral $ IS.size generation
+              answer = fromIntegral currentSum + nPlants * shiftLeft
+          print answer
 
