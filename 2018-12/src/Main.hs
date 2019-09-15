@@ -111,7 +111,7 @@ compareGenerations old new = check (-2)
 runGeneration :: Integer -> Problem -> Solver (Maybe (Integer, Int))
 runGeneration generationNumber (Problem {..}) = do
     oldGeneration <- get
-    when (generationNumber `mod` 9999 == 0) $
+    when (generationNumber `mod` 10000 == 0) $
         lift $ putStrLn $ show generationNumber ++ ": " ++ showGeneration oldGeneration
 
     newPairs <-
@@ -129,7 +129,7 @@ runGeneration generationNumber (Problem {..}) = do
 -- Nothing - we have counted to the end
 -- Just (n, d) - we stopped at n'th generation and shift == d
 solve :: Integer -> Problem -> Solver (Maybe (Integer, Int))
-solve generations p@(Problem {..}) = go 1
+solve generations p = go 1
   where
     go n = do
       if n == generations+1
@@ -139,6 +139,12 @@ solve generations p@(Problem {..}) = go 1
           case r of
             Nothing -> go (n+1)
             Just (stop, d) -> return $ Just (stop, d)
+
+-- Variant that always counts to the end.
+--
+-- solve generations p = do
+--   forM_ [1 .. generations] $ \n -> runGeneration n p
+--   return Nothing
 
 showGeneration :: Generation -> String
 showGeneration gen = 
