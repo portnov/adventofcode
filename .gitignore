@@ -1,0 +1,10 @@
+.stack-work/
+aoc201812.cabal
+*~
+*.hi
+*.o
+*.txt
+*.log
+*.prof
+*.hp
+stack.yaml.lock
